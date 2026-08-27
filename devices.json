@@ -83,7 +83,7 @@
     {"name":"Servidor Principal","ip":"10.0.1.128","type":"Servidor","sector":"Servidores"},
     {"name":"GLPI - Chamados","ip":"10.0.2.15","type":"Servidor","sector":"Servidores","porta":8088,"servico":"GLPI"},
     {"name":"Controladora Omada","ip":"10.0.12.79","type":"Servidor","sector":"Servidores","porta":8043,"servico":"Omada"},
-    {"name":"OnPortal - Chaves dos quartos","ip":"10.0.8.44","type":"Servidor","sector":"Servidores","porta":80,"servico":"OnPortal"},
+    {"name":"OnPortal - Chaves dos quartos","ip":"10.0.8.44","type":"Servidor","sector":"Servidores"},
     {"name":"Limber Windows","ip":"10.0.3.29","type":"Servidor","sector":"Servidores"},
     {"name":"Limber Linux","ip":"27.78.98.70","type":"Servidor","sector":"Servidores"},
     {"name":"Limber Sócios","ip":"10.0.0.195","type":"Servidor","sector":"Servidores"},
