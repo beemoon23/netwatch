@@ -1,0 +1,5 @@
+netwatch-events.jsonl
+netwatch-horas.jsonl
+node_modules/
+*.log
+logo.png
