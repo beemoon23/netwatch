@@ -18,6 +18,9 @@ const HORA_FILE = path.resolve(process.env.NETWATCH_HORAS || './netwatch-horas.j
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 = só esta máquina. 0.0.0.0 = qualquer um da rede interna alcança.
 const BIND = process.env.NETWATCH_BIND || '127.0.0.1';
+// Senha opcional. Sem NETWATCH_PASS definido, o painel roda aberto como antes.
+const USUARIO = process.env.NETWATCH_USER || 'vale';
+const SENHA = process.env.NETWATCH_PASS || '';
 
 if (!fs.existsSync(CFG_FILE)) {
   console.error(`Não achei ${CFG_FILE}.`);
@@ -40,11 +43,18 @@ const CFG = Object.assign({
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// O ping mora em lugares diferentes e o -W muda de unidade entre os sistemas.
+const PING = ['/usr/bin/ping', '/bin/ping', '/sbin/ping'].find((p) => fs.existsSync(p)) || 'ping';
+const LINUX = process.platform === 'linux';
+// macOS espera milissegundos no -W; Linux espera segundos.
+const ESPERA = LINUX ? '2' : '1000';
+
 // 3 pacotes: só conta falha se os três se perderem.
 function ping(ip) {
   return new Promise((resolve) => {
-    execFile('/sbin/ping', ['-c', '3', '-W', '1000', '-n', ip], { timeout: 10000 }, (_e, out = '') => {
-      const recv = /(\d+) packets received/.exec(out);
+    execFile(PING, ['-c', '3', '-W', ESPERA, '-n', ip], { timeout: 12000 }, (_e, out = '') => {
+      // macOS diz "3 packets received"; Linux diz "3 received". Aceita os dois.
+      const recv = /(\d+)\s+(?:packets\s+)?received/.exec(out);
       const avg = /=\s*[\d.]+\/([\d.]+)\//.exec(out);
       const got = recv ? Number(recv[1]) : 0;
       resolve({ ok: got > 0, ms: avg ? Math.round(Number(avg[1]) * 10) / 10 : null, recv: got });
@@ -81,6 +91,13 @@ async function fila(itens, n, fn) {
 function detectarGateway() {
   return new Promise((resolve) => {
     if (CFG.anchorIp) return resolve(CFG.anchorIp);
+    if (LINUX) {
+      execFile('ip', ['route', 'show', 'default'], (_e, out = '') => {
+        const m = /default via ([\d.]+)/.exec(out);
+        resolve(m ? m[1] : null);
+      });
+      return;
+    }
     execFile('/sbin/route', ['-n', 'get', 'default'], (_e, out = '') => {
       const m = /gateway:\s*([\d.]+)/.exec(out);
       resolve(m ? m[1] : null);
@@ -210,10 +227,13 @@ function registrar(level, dev, message) {
 
   // Em manutenção o evento fica registrado, mas não interrompe ninguém.
   if (mudo) return;
-  const esc = (s) => String(s).replace(/["\\]/g, '');
-  execFile('osascript', ['-e',
-    `display notification "${esc(message)}" with title "Rede" subtitle "${esc(dev.name)}" sound name "Submarine"`,
-  ], () => {});
+  // Notificação nativa só existe no macOS; no Linux o registro fica no journal.
+  if (!LINUX) {
+    const esc = (s) => String(s).replace(/["\\]/g, '');
+    execFile('osascript', ['-e',
+      `display notification "${esc(message)}" with title "Rede" subtitle "${esc(dev.name)}" sound name "Submarine"`,
+    ], () => {});
+  }
 }
 
 const minutos = (ms) => Math.max(1, Math.round(ms / 60000));
@@ -352,11 +372,22 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   /* ---------- topo ---------- */
   .topo{display:flex;justify-content:space-between;align-items:center;gap:24px;
         flex-wrap:wrap;padding:20px 0 18px}
-  .marca{display:flex;align-items:center;gap:16px}
-  .marca img,.marca svg.mk{width:64px;height:64px;flex:none}
-  .marca .nm{font:italic 400 38px/.95 var(--script);color:#fff;letter-spacing:.01em}
-  .marca .sb{font:600 10px/1 var(--titulo);letter-spacing:.46em;color:var(--teal);
-             text-transform:uppercase;margin-top:9px}
+  .marca{display:flex;align-items:center;gap:20px}
+  .marca img{width:104px;height:104px;flex:none;object-fit:contain;
+    background:#fff;border-radius:16px;padding:9px;
+    box-shadow:0 6px 22px rgba(0,0,0,.32)}
+  .marca svg.mk{width:96px;height:96px;flex:none}
+  .marca .nm{font:italic 400 46px/.95 var(--script);color:#fff;letter-spacing:.01em}
+  .marca .sb{font:600 11px/1 var(--titulo);letter-spacing:.44em;color:var(--teal);
+             text-transform:uppercase;margin-top:11px}
+
+  /* faixa fina no topo: dá pra ver o estado de longe, sem ler nada */
+  .pulso{position:fixed;top:0;left:0;right:0;height:4px;z-index:60;background:var(--folha);
+    transition:background .4s}
+  .pulso.mal{background:var(--brasa);animation:respira 1.8s ease-in-out infinite}
+  .pulso.aten{background:var(--laranja)}
+  @keyframes respira{50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.pulso.mal{animation:none}}
   .agora{text-align:right;font-size:12px;color:var(--suave)}
   .agora .hh{font:600 30px/1 var(--titulo);color:var(--texto);letter-spacing:.02em;
              font-variant-numeric:tabular-nums}
@@ -402,6 +433,7 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
     border-radius:999px;padding:10px 18px;font:600 11px/1 var(--titulo);letter-spacing:.1em;
     text-transform:uppercase;cursor:pointer;text-decoration:none;display:inline-block}
   .baixar:hover{border-color:var(--teal);color:var(--teal)}
+  .baixar[aria-pressed=true]{background:var(--teal);border-color:var(--teal);color:#03191b}
   .inc{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:11.5px;padding:7px 0;
        border-bottom:1px solid #12333a}
   .inc:last-child{border:0}
@@ -422,6 +454,15 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
            line-height:1.3}
   .hub .hq{text-align:center;font-size:10px;color:var(--suave);letter-spacing:.08em;
            text-transform:uppercase;margin-top:3px}
+  .hub.solto{background:linear-gradient(160deg,var(--painel),#0c2a2d)}
+  .legc{display:flex;gap:16px;flex-wrap:wrap;font-size:10.5px;color:var(--suave);
+        margin:-4px 0 14px}
+  .legc span{display:flex;align-items:center;gap:6px}
+  .legc i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+  /* primeiros segundos: ainda não há medição */
+  .card.desconhecido .nome{opacity:.75}
+  .medindo{color:var(--suave);font-size:11.5px;padding:14px 0}
 
   /* ---------- mapa de calor ---------- */
   .calor{background:var(--painel);border:1px solid var(--linha);border-radius:12px;padding:16px 18px}
@@ -451,8 +492,9 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   body.tv .cols,body.tv .calor,body.tv .sete,body.tv nav,body.tv .busca,
   body.tv h2.sec:not(#tconst){display:none}
   body.tv #tconst{font-size:14px;letter-spacing:.3em;margin:30px 0 18px}
-  body.tv .marca .nm{font-size:54px}
-  body.tv .marca img,body.tv .marca svg.mk{width:88px;height:88px}
+  body.tv .marca .nm{font-size:66px}
+  body.tv .marca img{width:150px;height:150px;border-radius:22px;padding:13px}
+  body.tv .marca svg.mk{width:140px;height:140px}
   body.tv .agora .hh{font-size:46px}
   body.tv .estado{font-size:clamp(48px,7.4vw,104px)}
   body.tv .legenda{font-size:19px;max-width:none}
@@ -482,6 +524,25 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   .card.mudo{opacity:.48}
   .nome{display:flex;justify-content:space-between;gap:9px;align-items:flex-start;
         font:600 13px/1.35 var(--titulo)}
+  .nome .esq{display:flex;gap:9px;align-items:flex-start;min-width:0}
+  .ico{width:15px;height:15px;flex:none;margin-top:2px;opacity:.75}
+  .online .ico{color:var(--folha)} .offline .ico{color:var(--brasa)}
+  .instavel .ico{color:var(--laranja)} .dependente .ico{color:var(--jacaranda)}
+  .desconhecido .ico{color:var(--suave)}
+
+  .tipos{display:flex;gap:20px;flex-wrap:wrap;margin-top:16px}
+  .tipos div{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--suave)}
+  .tipos b{font:600 20px/1 var(--titulo);color:var(--texto);font-variant-numeric:tabular-nums}
+  .tipos svg{width:16px;height:16px;opacity:.6}
+
+  .compacto .card{padding:9px 12px}
+  .compacto .card svg:not(.ico){display:none}
+  .compacto .card .via,.compacto .card .selo{display:none}
+  .compacto .card dl{grid-template-columns:1fr auto auto;gap:0 14px;margin-top:6px}
+  .compacto .card dt{display:none}
+  .compacto .card dd{text-align:left;color:var(--suave);font-size:11px}
+  .compacto .grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px}
+  .compacto .nome{font-size:12px}
   .pt{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px;background:var(--folha);
       box-shadow:0 0 9px rgba(140,198,63,.55)}
   .offline .pt{background:var(--brasa);box-shadow:0 0 12px rgba(239,74,60,.7);animation:bate 1.5s infinite}
@@ -567,7 +628,9 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   /* ---------- telas pequenas ---------- */
   @media (max-width:640px){
     .env{padding:0 14px}
-    .marca .nm{font-size:29px} .marca img,.marca svg.mk{width:50px;height:50px}
+    .marca .nm{font-size:32px} .marca{gap:13px}
+    .marca img{width:68px;height:68px;border-radius:12px;padding:6px}
+    .marca svg.mk{width:62px;height:62px}
     .agora{text-align:left} .agora .hh{font-size:24px}
     .topo{padding:16px 0 12px}
     .heroi{padding:20px;grid-template-columns:1fr}
@@ -581,6 +644,7 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   }
 </style>
 
+<div class="pulso" id="pulso"></div>
 <div class="env">
   <div class="topo">
     <div class="marca">
@@ -598,10 +662,18 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   <nav id="abas"></nav>
   <div class="busca">
     <input id="q" type="search" placeholder="Buscar por nome ou IP — ex: quarto 117, camping, 27.78.96">
+    <button class="baixar" id="denso" aria-pressed="false">Modo compacto</button>
     <a class="baixar" href="/relatorio.csv">Baixar relatório</a>
   </div>
 
-  <h2 class="sec" id="tconst">Constelações — switches e o que depende deles</h2>
+  <h2 class="sec" id="tconst">Constelações — como os aparelhos se penduram uns nos outros</h2>
+  <div class="legc">
+    <span><i style="background:var(--folha)"></i>no ar</span>
+    <span><i style="background:var(--laranja)"></i>link instável</span>
+    <span><i style="background:var(--jacaranda)"></i>parado por queda do switch</span>
+    <span><i style="background:var(--brasa)"></i>fora do ar</span>
+    <span><i style="background:var(--suave)"></i>ainda medindo</span>
+  </div>
   <div class="const" id="const"></div>
 
   <h2 class="sec">Mapa de calor — cada coluna é uma rodada de ping</h2>
@@ -750,7 +822,8 @@ function pintarDetalhe(){
 
   document.getElementById('det').innerHTML =
     '<button class="fecha" id="fecha" aria-label="Fechar">&times;</button>'+
-    '<h3>'+esc(d.name)+'</h3>'+
+    '<h3>'+icone(d.type).replace('class="ico"','class="ico" style="width:19px;height:19px"')+
+      ' '+esc(d.name)+'</h3>'+
     '<div class="ipn">'+esc(d.type||'aparelho')+' · '+d.ip+' · '+esc(sec(d))+
       ' · <span style="color:'+cor(d.status)+'">'+rotulo+'</span></div>'+
     '<div class="grade">'+
@@ -794,6 +867,24 @@ function relogioTopo(s){
     s.lastRun ? 'rodada às '+new Date(s.lastRun).toLocaleTimeString('pt-BR') : 'aguardando';
 }
 
+// glifos por tipo: dá pra varrer o painel sem ler nome
+const GLIFO = {
+  ap:'<path d="M8 13.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/><path d="M4.6 8.1a4.8 4.8 0 0 1 6.8 0M2 5.5a8.5 8.5 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+  switch:'<rect x="1.5" y="5" width="13" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4 8h.01M6.5 8h.01M9 8h.01M11.5 8h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  servidor:'<rect x="2" y="2" width="12" height="5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="12" height="5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.4 4.5h.01M4.4 11.5h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  central:'<path d="M3.5 2.5h2.2l1.1 2.8-1.4 1a8 8 0 0 0 4.3 4.3l1-1.4 2.8 1.1v2.2a1 1 0 0 1-1.1 1C6.6 13 3 9.4 2.5 3.6a1 1 0 0 1 1-1.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
+};
+function tipoDe(t){
+  const x = (t||'').toLowerCase();
+  if (x.includes('switch')) return 'switch';
+  if (x.includes('servidor')) return 'servidor';
+  if (x.includes('central')) return 'central';
+  return 'ap';
+}
+const icone = (t) => '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true">'+GLIFO[tipoDe(t)]+'</svg>';
+const PLURAL = { ap:['ponto de acesso','pontos de acesso'], switch:['switch','switches'],
+                 servidor:['servidor','servidores'], central:['central','centrais'] };
+
 // escala da disponibilidade horária
 function corDisp(p){
   if (p === null || p === undefined) return '#0d2a2e';
@@ -806,6 +897,8 @@ function corDisp(p){
 
 // a aba do navegador vira indicador: dá pra saber o estado sem abrir
 function marcarAba(off, ins){
+  const p = document.getElementById('pulso');
+  p.className = 'pulso' + (off ? ' mal' : ins ? ' aten' : '');
   const c = off ? '#ef4a3c' : ins ? '#f7941d' : '#8cc63f';
   document.title = (off ? '● ' + off + ' fora do ar' : ins ? '● ' + ins + ' instável' : '● tudo no ar')
     + ' · Vale Encantado';
@@ -836,6 +929,21 @@ function pintarLongo(lista, nomes){
 }
 
 let assinatura = '';
+// Aparelhos sem uplink conhecido não cabem numa constelação — viram constelação própria.
+function nebulosa(nome, itens){
+  const col = 7, lin = Math.ceil(itens.length/col);
+  const larg = 200, pad = 22, passo = (larg-pad*2)/(col-1);
+  const alt = Math.max(90, 46 + lin*20);
+  return '<svg viewBox="0 0 200 '+alt+'" role="img" aria-label="'+esc(nome)+'">'+
+    '<text x="100" y="22" text-anchor="middle" font-size="13" fill="var(--suave)" '+
+      'font-family="Avenir Next,sans-serif" font-weight="600">'+itens.length+'</text>'+
+    itens.map((d,i)=>{
+      const x = pad + (i%col)*passo, y = 42 + Math.floor(i/col)*20;
+      return '<circle cx="'+x.toFixed(1)+'" cy="'+y+'" r="6.5" fill="'+cor(d.status)+
+        '" opacity="'+(d.status==='online'?'.82':'1')+'"><title>'+esc(d.name)+'</title></circle>';
+    }).join('')+'</svg>';
+}
+
 function pintar(forcar){
   const s=dados, todos=s.devices;
   // Redesenhar a cada 5 s apagava tooltip, seleção de texto e foco. Agora só quando muda.
@@ -865,8 +973,13 @@ function pintar(forcar){
           ? '<b>'+todos.length+'</b> aparelhos respondendo, mas <b style="color:var(--laranja)">'+
             ins.map(d=>esc(d.name)).join('</b>, <b style="color:var(--laranja)">')+
             '</b> '+(ins.length>1?'estão perdendo':'está perdendo')+' pacotes demais — link instável.'
-          : '<b>'+todos.length+'</b> aparelhos respondendo em '+setores.length+' setores. '+
-            'Um alerta só aparece aqui depois de 3 rodadas sem resposta, com o gateway confirmado no ar.');
+          : (()=>{ 
+              const c={}; todos.forEach(d=>{const k=tipoDe(d.type); c[k]=(c[k]||0)+1;});
+              return '<div class="tipos">'+Object.entries(c).map(([k,n])=>
+                '<div>'+icone(k)+'<b>'+n+'</b> '+PLURAL[k][n>1?1:0]+'</div>').join('')+'</div>'+
+                '<div style="margin-top:14px">Em '+setores.length+' setores. Um alerta só aparece '+
+                'depois de 3 rodadas sem resposta, com o gateway confirmado no ar.</div>';
+            })());
 
   document.getElementById('petalas').innerHTML = setores.map((x,i)=>{
     const g=todos.filter(d=>sec(d)===x), ok=g.filter(d=>d.status==='online').length;
@@ -888,15 +1001,27 @@ function pintar(forcar){
     lista = lista.filter(d=>d.name.toLowerCase().includes(q) || d.ip.includes(q));
   }
 
-  const hubs = todos.filter(h=>todos.some(f=>f.parent===h.ip))
-    .filter(h=>setor==='Todos'||sec(h)===setor);
-  document.getElementById('tconst').style.display = hubs.length?'':'none';
-  document.getElementById('const').innerHTML = hubs.map(h=>{
+  const ehHub = h => todos.some(f=>f.parent===h.ip);
+  const noSetor = x => setor==='Todos' || sec(x)===setor;
+  const hubs = todos.filter(h=>ehHub(h) && noSetor(h));
+  const soltos = todos.filter(d=>!d.parent && !ehHub(d) && noSetor(d));
+  const porSetor = {};
+  soltos.forEach(d=>{ (porSetor[sec(d)] || (porSetor[sec(d)]=[])).push(d); });
+
+  const cartoes = hubs.map(h=>{
     const filhos=todos.filter(f=>f.parent===h.ip);
     const ruins=filhos.filter(f=>f.status!=='online').length;
     return '<div class="hub">'+constelacao(h,filhos)+'<div class="hn">'+esc(h.name)+'</div>'+
       '<div class="hq">'+(ruins?ruins+' com problema':'todos no ar')+'</div></div>';
-  }).join('');
+  }).concat(Object.entries(porSetor).map(([nome,itens])=>{
+    const ruins = itens.filter(d=>d.status!=='online').length;
+    return '<div class="hub solto">'+nebulosa(nome,itens)+
+      '<div class="hn">'+esc(nome)+' · sem uplink mapeado</div>'+
+      '<div class="hq">'+(ruins?ruins+' com problema':'todos no ar')+'</div></div>';
+  }));
+
+  document.getElementById('tconst').style.display = cartoes.length?'':'none';
+  document.getElementById('const').innerHTML = cartoes.join('');
 
   const ate=s.silencio[setor], calado=ate&&ate>Date.now();
   document.getElementById('man').innerHTML = setor==='Todos'
@@ -912,7 +1037,8 @@ function pintar(forcar){
     const emMan=s.silencio[sec(d)]>Date.now();
     return '<div class="card '+d.status+(emMan?' mudo':'')+'" data-ip="'+d.ip+
       '" role="button" tabindex="0">'+
-      '<div class="nome"><span>'+esc(d.name)+'</span><span class="pt"></span></div>'+
+      '<div class="nome"><span class="esq">'+icone(d.type)+'<span>'+esc(d.name)+
+        '</span></span><span class="pt"></span></div>'+
       (d.status==='dependente'?'<span class="selo dep">queda do switch acima</span>':'')+
       (d.status==='instavel'?'<span class="selo ins">link instável</span>':'')+
       (d.porta&&d.portaOk===false?'<span class="selo svc">'+esc(d.servico||'serviço')+' fora</span>':'')+
@@ -983,6 +1109,12 @@ function pintar(forcar){
 }
 
 function trocar(ev){ const b=ev.target.closest('[data-s]'); if(!b) return; setor=b.dataset.s; pintar(true); }
+document.getElementById('denso').addEventListener('click', ev=>{
+  const b = ev.currentTarget;
+  const on = b.getAttribute('aria-pressed') !== 'true';
+  b.setAttribute('aria-pressed', on);
+  document.body.classList.toggle('compacto', on);
+});
 document.getElementById('grid').addEventListener('click', ev=>{
   const c = ev.target.closest('[data-ip]'); if(!c) return;
   detalhe = c.dataset.ip; pintarDetalhe();
@@ -1024,7 +1156,31 @@ if (TV) {
 setInterval(()=>{document.getElementById('hh').textContent=relogio(Date.now());},20000);
 </script></html>`;
 
+// Comparação de tamanho fixo: evita descobrir a senha medindo o tempo de resposta.
+function igual(a, b) {
+  const crypto = require('crypto');
+  const x = crypto.createHash('sha256').update(String(a)).digest();
+  const y = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(x, y);
+}
+
+function autorizado(req) {
+  if (!SENHA) return true;
+  const h = req.headers.authorization || '';
+  if (!h.startsWith('Basic ')) return false;
+  const [u, ...resto] = Buffer.from(h.slice(6), 'base64').toString('utf8').split(':');
+  return igual(u, USUARIO) && igual(resto.join(':'), SENHA);
+}
+
 const server = http.createServer((req, res) => {
+  if (!autorizado(req)) {
+    res.writeHead(401, {
+      'WWW-Authenticate': 'Basic realm="Vale Encantado - monitoramento", charset="UTF-8"',
+      'Content-Type': 'text/plain; charset=utf-8',
+    });
+    return res.end('Acesso restrito.');
+  }
+
   if (req.method === 'POST' && req.url.startsWith('/api/silenciar')) {
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 1e4) req.destroy(); });
@@ -1129,13 +1285,16 @@ process.on('SIGTERM', encerrar);
 
 server.listen(PORT, BIND, async () => {
   anchorIp = await detectarGateway();
+  console.log(`sistema: ${process.platform} · ping: ${PING}`);
   console.log(`http://localhost:${PORT}`);
   if (BIND === '0.0.0.0') {
     const ifs = require('os').networkInterfaces();
     const meus = Object.values(ifs).flat()
       .filter((n) => n.family === 'IPv4' && !n.internal).map((n) => n.address);
     meus.forEach((ip) => console.log(`http://${ip}:${PORT}   <- este endereço funciona na rede`));
-    console.log('aberto para a rede interna — qualquer um que alcance este IP vê o painel');
+    console.log(SENHA
+      ? `protegido por senha — usuário "${USUARIO}"`
+      : 'ATENÇÃO: aberto na rede SEM SENHA. Defina NETWATCH_PASS para exigir login.');
   }
   console.log(`${CFG.devices.length} aparelhos · ${CFG.concurrency} pings por vez · âncora ${anchorIp || 'desativada'}`);
   await rodada();
