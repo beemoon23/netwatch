@@ -1,0 +1,23 @@
+[Unit]
+Description=Netwatch - painel de rede do Vale Encantado
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=info
+WorkingDirectory=/opt/netwatch
+Environment=NETWATCH_BIND=0.0.0.0
+Environment=PORT=48715
+Environment=TZ=America/Sao_Paulo
+ExecStart=/usr/bin/node netwatch.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
