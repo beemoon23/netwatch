@@ -37,6 +37,12 @@ const CFG = Object.assign({
   perdaEstavel: 5,        // % abaixo do qual o link é considerado recuperado
   avisarInstavelMin: 60,  // não repetir o aviso de instabilidade antes disso
   anchorIp: null,         // gateway; null = detecta sozinho
+  // Telegram: alerta que te alcança longe da tela. Vazio = desligado.
+  telegramToken: process.env.TELEGRAM_TOKEN || '',
+  telegramChat: process.env.TELEGRAM_CHAT || '',
+  // o que merece interromper alguém: queda, retorno, reinício, serviço fora
+  telegramNiveis: (process.env.TELEGRAM_NIVEIS || 'offline,online,reboot,servico,instavel')
+    .split(',').map((x) => x.trim()).filter(Boolean),
 }, JSON.parse(fs.readFileSync(CFG_FILE, 'utf8')));
 
 // ---------------------------------------------------------------- ping
@@ -61,6 +67,36 @@ function ping(ip) {
     });
   });
 }
+
+// Telegram usa API oficial: só HTTPS, sem biblioteca, sem sessão para expirar.
+const ICONE = { offline: '🔴', online: '🟢', reboot: '🔁', instavel: '🟠',
+                servico: '⚠️', monitor: '🔵' };
+
+async function avisarTelegram(level, dev, message) {
+  if (!CFG.telegramToken || !CFG.telegramChat) return;
+  if (!CFG.telegramNiveis.includes(level)) return;
+
+  const texto =
+    `${ICONE[level] || '•'} *${escaparMd(dev.name)}*\n` +
+    `${escaparMd(message)}\n\n` +
+    `_${escaparMd(dev.sector || 'sem setor')} · ${dev.ip} · ` +
+    `${new Date().toLocaleTimeString('pt-BR')}_`;
+
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${CFG.telegramToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: CFG.telegramChat, text: texto, parse_mode: 'Markdown' }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) erro(`telegram respondeu ${r.status}:`, (await r.text()).slice(0, 200));
+  } catch (e) {
+    erro('não consegui avisar no telegram:', e.message);
+  }
+}
+
+// o Markdown do Telegram quebra com esses caracteres soltos
+const escaparMd = (t) => String(t).replace(/([_*\[\]`])/g, '\\$1');
 
 // Servidor pode pingar e estar com o serviço morto. A porta é quem diz a verdade.
 function checarPorta(ip, porta, timeout = 3000) {
@@ -227,6 +263,8 @@ function registrar(level, dev, message) {
 
   // Em manutenção o evento fica registrado, mas não interrompe ninguém.
   if (mudo) return;
+
+  avisarTelegram(level, { ...dev, sector: setor }, message);
   // Notificação nativa só existe no macOS; no Linux o registro fica no journal.
   if (!LINUX) {
     const esc = (s) => String(s).replace(/["\\]/g, '');
@@ -1286,6 +1324,13 @@ process.on('SIGTERM', encerrar);
 server.listen(PORT, BIND, async () => {
   anchorIp = await detectarGateway();
   console.log(`sistema: ${process.platform} · ping: ${PING}`);
+  if (CFG.telegramToken && CFG.telegramChat) {
+    console.log(`telegram ativo · avisa sobre: ${CFG.telegramNiveis.join(', ')}`);
+    avisarTelegram('monitor', { name: 'Netwatch', ip: 'servidor', sector: 'Infraestrutura' },
+      'monitor iniciado e vigiando a rede');
+  } else {
+    console.log('telegram desligado (defina TELEGRAM_TOKEN e TELEGRAM_CHAT)');
+  }
   console.log(`http://localhost:${PORT}`);
   if (BIND === '0.0.0.0') {
     const ifs = require('os').networkInterfaces();
