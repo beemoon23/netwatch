@@ -43,6 +43,13 @@ const CFG = Object.assign({
   // o que merece interromper alguém: queda, retorno, reinício, serviço fora
   telegramNiveis: (process.env.TELEGRAM_NIVEIS || 'offline,online,reboot,servico,instavel')
     .split(',').map((x) => x.trim()).filter(Boolean),
+  // minutos que a queda precisa durar até virar mensagem no Telegram.
+  // O painel fica vermelho na hora; o aviso espera a queda se confirmar.
+  avisarQuedaMin: Number(process.env.AVISAR_QUEDA_MIN || 5),
+  // quedas na última hora que caracterizam aparelho oscilando
+  oscilaQuedas: Number(process.env.OSCILA_QUEDAS || 3),
+  // depois de avisar que oscila, fica quieto por este tempo
+  oscilaSilencioMin: Number(process.env.OSCILA_SILENCIO_MIN || 120),
 }, JSON.parse(fs.readFileSync(CFG_FILE, 'utf8')));
 
 // ---------------------------------------------------------------- ping
@@ -264,7 +271,11 @@ function registrar(level, dev, message) {
   // Em manutenção o evento fica registrado, mas não interrompe ninguém.
   if (mudo) return;
 
-  avisarTelegram(level, { ...dev, sector: setor }, message);
+  // queda, retorno e reinício passam pelo filtro de oscilação (fase 3).
+  // O resto vai direto.
+  if (!['offline', 'online', 'reboot'].includes(level)) {
+    avisarTelegram(level, { ...dev, sector: setor }, message);
+  }
   // Notificação nativa só existe no macOS; no Linux o registro fica no journal.
   if (!LINUX) {
     const esc = (s) => String(s).replace(/["\\]/g, '');
@@ -374,6 +385,7 @@ async function rodada() {
     d.downSince = agora;
     d.since = agora;
     contarQueda(d);
+    (d.quedas = d.quedas || []).push(agora);
     const filhos = [...state.values()].filter((f) => f.parent === d.ip && !f.okAgora).length;
     registrar('offline', d, filhos
       ? `${d.fails} rodadas sem resposta — ${filhos} aparelhos abaixo dele também pararam`
@@ -551,7 +563,7 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   .cols{display:grid;gap:16px;grid-template-columns:1fr 288px;align-items:start}
   @media (max-width:980px){.cols{grid-template-columns:1fr}
     .heroi{grid-template-columns:1fr}.petalas{flex-wrap:wrap;justify-content:center}}
-  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(248px,1fr))}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(268px,1fr))}
   .card{background:var(--painel);border:1px solid var(--linha);border-radius:10px;
         padding:14px 16px 12px;position:relative;overflow:hidden}
   .card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--folha)}
@@ -560,9 +572,12 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   .card.instavel::before{background:var(--laranja)}
   .card.desconhecido::before{background:var(--suave)}
   .card.mudo{opacity:.48}
-  .nome{display:flex;justify-content:space-between;gap:9px;align-items:flex-start;
-        font:600 13px/1.35 var(--titulo)}
-  .nome .esq{display:flex;gap:9px;align-items:flex-start;min-width:0}
+  .nome{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
+        font:600 13px/1.32 var(--titulo)}
+  .nome .esq{display:flex;gap:8px;align-items:flex-start;min-width:0;flex:1 1 auto}
+  /* nome longo quebra em até 2 linhas e nunca invade a bolinha de estado */
+  .nome .esq b{font-weight:600;min-width:0;overflow-wrap:anywhere;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .ico{width:15px;height:15px;flex:none;margin-top:2px;opacity:.75}
   .online .ico{color:var(--folha)} .offline .ico{color:var(--brasa)}
   .instavel .ico{color:var(--laranja)} .dependente .ico{color:var(--jacaranda)}
@@ -1075,8 +1090,8 @@ function pintar(forcar){
     const emMan=s.silencio[sec(d)]>Date.now();
     return '<div class="card '+d.status+(emMan?' mudo':'')+'" data-ip="'+d.ip+
       '" role="button" tabindex="0">'+
-      '<div class="nome"><span class="esq">'+icone(d.type)+'<span>'+esc(d.name)+
-        '</span></span><span class="pt"></span></div>'+
+      '<div class="nome"><span class="esq">'+icone(d.type)+'<b title="'+esc(d.name)+'">'+
+        esc(d.name)+'</b></span><span class="pt"></span></div>'+
       (d.status==='dependente'?'<span class="selo dep">queda do switch acima</span>':'')+
       (d.status==='instavel'?'<span class="selo ins">link instável</span>':'')+
       (d.porta&&d.portaOk===false?'<span class="selo svc">'+esc(d.servico||'serviço')+' fora</span>':'')+
