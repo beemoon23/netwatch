@@ -925,6 +925,7 @@ const GLIFO = {
   ap:'<path d="M8 13.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/><path d="M4.6 8.1a4.8 4.8 0 0 1 6.8 0M2 5.5a8.5 8.5 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
   switch:'<rect x="1.5" y="5" width="13" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4 8h.01M6.5 8h.01M9 8h.01M11.5 8h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   servidor:'<rect x="2" y="2" width="12" height="5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="12" height="5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.4 4.5h.01M4.4 11.5h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  catraca:'<rect x="2" y="2" width="3" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="11" y="2" width="3" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 8h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   central:'<path d="M3.5 2.5h2.2l1.1 2.8-1.4 1a8 8 0 0 0 4.3 4.3l1-1.4 2.8 1.1v2.2a1 1 0 0 1-1.1 1C6.6 13 3 9.4 2.5 3.6a1 1 0 0 1 1-1.1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>',
 };
 function tipoDe(t){
@@ -932,11 +933,13 @@ function tipoDe(t){
   if (x.includes('switch')) return 'switch';
   if (x.includes('servidor')) return 'servidor';
   if (x.includes('central')) return 'central';
+  if (x.includes('catraca')) return 'catraca';
   return 'ap';
 }
 const icone = (t) => '<svg class="ico" viewBox="0 0 16 16" aria-hidden="true">'+GLIFO[tipoDe(t)]+'</svg>';
 const PLURAL = { ap:['ponto de acesso','pontos de acesso'], switch:['switch','switches'],
-                 servidor:['servidor','servidores'], central:['central','centrais'] };
+                 servidor:['servidor','servidores'], central:['central','centrais'],
+                 catraca:['catraca','catracas'] };
 
 // escala da disponibilidade horária
 function corDisp(p){
