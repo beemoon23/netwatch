@@ -13,7 +13,7 @@ const path = require('path');
 
 // IPs conhecidos dos dois links (ajuste aqui se mudar o provedor/IP)
 const LINKS = {
-  '187.195.161.210': 'PRINCIPAL',
+  '187.95.161.210': 'PRINCIPAL',
   '45.172.202.38': 'BACKUP',
 };
 
