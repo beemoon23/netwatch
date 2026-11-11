@@ -22,6 +22,13 @@ const BIND = process.env.NETWATCH_BIND || '127.0.0.1';
 const USUARIO = process.env.NETWATCH_USER || 'vale';
 const SENHA = process.env.NETWATCH_PASS || '';
 
+// Fail closed: nunca exponha o painel na rede sem autenticação.
+if (BIND !== '127.0.0.1' && BIND !== '::1' && !SENHA) {
+  console.error('ERRO: NETWATCH_PASS é obrigatório quando NETWATCH_BIND expõe o painel na rede.');
+  console.error('Configure NETWATCH_USER e NETWATCH_PASS em um arquivo de ambiente protegido.');
+  process.exit(1);
+}
+
 if (!fs.existsSync(CFG_FILE)) {
   console.error(`Não achei ${CFG_FILE}.`);
   process.exit(1);
@@ -1360,6 +1367,15 @@ server.listen(PORT, BIND, async () => {
       : 'ATENÇÃO: aberto na rede SEM SENHA. Defina NETWATCH_PASS para exigir login.');
   }
   console.log(`${CFG.devices.length} aparelhos · ${CFG.concurrency} pings por vez · âncora ${anchorIp || 'desativada'}`);
-  await rodada();
-  setInterval(rodada, CFG.intervalSec * 1000);
+  // Agenda a próxima rodada somente depois que a atual termina.
+  // setInterval podia iniciar duas rodadas simultâneas em redes lentas.
+  const executarRodada = async () => {
+    try {
+      await rodada();
+    } catch (e) {
+      console.error('ERRO na rodada de monitoramento:', e);
+    }
+    setTimeout(executarRodada, Math.max(1000, CFG.intervalSec * 1000));
+  };
+  executarRodada();
 });
