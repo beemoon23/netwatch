@@ -1360,7 +1360,7 @@ server.listen(PORT, BIND, async () => {
     meus.forEach((ip) => console.log(`http://${ip}:${PORT}   <- este endereço funciona na rede`));
     console.log(SENHA
       ? `protegido por senha — usuário "${USUARIO}"`
-      : 'ATENÇÃO: aberto na rede SEM SENHA. Defina NETWATCH_PASS para exigir login.');
+      : 'autenticação obrigatória ativa para acesso pela rede.');
   }
   console.log(`${CFG.devices.length} aparelhos · ${CFG.concurrency} pings por vez · âncora ${anchorIp || 'desativada'}`);
   // Agenda a próxima rodada somente depois que a atual termina.
