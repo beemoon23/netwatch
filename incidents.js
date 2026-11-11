@@ -47,7 +47,7 @@ class IncidentStore {
     );
     if (existing) {
       const patch = {};
-      for (const key of ['causa', 'causaTipo', 'confianca', 'impacto']) {
+      for (const key of ['tipo', 'causa', 'causaTipo', 'confianca', 'impacto']) {
         if (data[key] !== undefined && existing[key] !== data[key]) patch[key] = data[key];
       }
       if (Object.keys(patch).length) {
