@@ -75,6 +75,27 @@ Cada aparelho:
 
 Variáveis no `netwatch.service`:
 
+Em produção, as credenciais ficam fora do repositório, em
+`/etc/netwatch/netwatch.env` (o systemd lê o arquivo antes de iniciar o processo):
+
+```bash
+sudo install -d -m 700 /etc/netwatch
+sudo sh -c 'cat > /etc/netwatch/netwatch.env <<EOF
+NETWATCH_USER=vale
+NETWATCH_PASS=COLOQUE_AQUI_UMA_SENHA_LONGA_E_UNICA
+EOF'
+sudo chmod 600 /etc/netwatch/netwatch.env
+sudo systemctl daemon-reload
+sudo systemctl restart netwatch
+```
+
+O serviço encerra a inicialização se estiver exposto na rede sem
+`NETWATCH_PASS`. Isso evita deixar o painel aberto por engano. A autenticação
+Basic sobre HTTP não cifra as credenciais; para redes não totalmente confiáveis,
+publique o painel por HTTPS (proxy reverso) ou VPN. Não exponha a porta 48715
+diretamente à internet.
+
+
 ```
 PORT=48715
 NETWATCH_BIND=0.0.0.0            # 127.0.0.1 = só local; 0.0.0.0 = rede interna
@@ -82,8 +103,8 @@ TZ=America/Sao_Paulo
 TELEGRAM_TOKEN=...
 TELEGRAM_CHAT=-5396993498
 TELEGRAM_NIVEIS=offline,online,reboot,servico
-NETWATCH_USER=vale               # opcional: exige login no painel
-NETWATCH_PASS=...
+NETWATCH_USER=vale               # usuário do painel
+NETWATCH_PASS=uma-senha-forte      # obrigatório quando NETWATCH_BIND não é loopback
 ```
 
 ---
