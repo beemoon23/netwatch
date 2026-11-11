@@ -18,7 +18,7 @@ const HORA_FILE = path.resolve(process.env.NETWATCH_HORAS || './netwatch-horas.j
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 = só esta máquina. 0.0.0.0 = qualquer um da rede interna alcança.
 const BIND = process.env.NETWATCH_BIND || '127.0.0.1';
-// Senha opcional. Sem NETWATCH_PASS definido, o painel roda aberto como antes.
+// Em loopback a senha pode ser omitida; em qualquer bind de rede ela é obrigatória.
 const USUARIO = process.env.NETWATCH_USER || 'vale';
 const SENHA = process.env.NETWATCH_PASS || '';
 
