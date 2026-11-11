@@ -67,3 +67,26 @@ test('ignora linhas JSON inválidas sem perder registros válidos', () => {
     assert.equal(new IncidentStore(file).list().length, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('importa eventos antigos uma única vez e preserva quedas abertas', () => {
+  const { dir, file } = fixture();
+  try {
+    const legacy = path.join(dir, 'events.jsonl');
+    const events = [
+      { level: 'offline', at: 1000, device: 'AP', ip: '10.0.0.5', sector: 'Lazer' },
+      { level: 'online', at: 121000, device: 'AP', ip: '10.0.0.5', sector: 'Lazer' },
+      { level: 'offline', at: 200000, device: 'Switch', ip: '10.0.0.6', sector: 'Infra' }
+    ];
+    fs.writeFileSync(legacy, events.map(JSON.stringify).join('\n') + '\n');
+    const store = new IncidentStore(file);
+    assert.equal(store.migrateLegacy(legacy), true);
+    const items = store.list();
+    assert.equal(items.length, 2);
+    assert.equal(items.find(item => item.ip === '10.0.0.5').status, 'resolved');
+    assert.equal(items.find(item => item.ip === '10.0.0.6').status, 'open');
+    assert.equal(items.find(item => item.ip === '10.0.0.6').causaTipo, 'legado');
+    const restored = new IncidentStore(file);
+    assert.equal(restored.migrateLegacy(legacy), false);
+    assert.equal(restored.list().length, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
