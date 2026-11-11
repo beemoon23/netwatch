@@ -80,10 +80,10 @@ Em produção, as credenciais ficam fora do repositório, em
 
 ```bash
 sudo install -d -m 700 /etc/netwatch
-sudo sh -c 'cat > /etc/netwatch/netwatch.env <<EOF
-NETWATCH_USER=vale
-NETWATCH_PASS=COLOQUE_AQUI_UMA_SENHA_LONGA_E_UNICA
-EOF'
+sudoedit /etc/netwatch/netwatch.env
+# No arquivo, coloque:
+# NETWATCH_USER=vale
+# NETWATCH_PASS=UMA_SENHA_LONGA_E_UNICA
 sudo chmod 600 /etc/netwatch/netwatch.env
 sudo systemctl daemon-reload
 sudo systemctl restart netwatch
