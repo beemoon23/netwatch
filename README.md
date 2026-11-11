@@ -32,7 +32,7 @@ O painel fica em `http://IP_DO_SERVIDOR:48715`.
 
 | arquivo | o que é |
 |---|---|
-| `netwatch.js` | tudo: monitor, servidor web e interface |
+| `netwatch.js` | monitor, servidor web e interface |\n| `incidents.js` | diário persistente e ciclo de vida dos incidentes |
 | `devices.json` | os aparelhos monitorados e as configurações |
 | `netwatch.service` | unidade do systemd |
 | `netwatch-events.jsonl` | histórico de eventos, gerado em execução |
