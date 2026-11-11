@@ -6,4 +6,5 @@ logo.png
 
 # Estado e eventos locais do monitor de link
 link-monitor-state.json
-link-monitor-events.jsonl\nnetwatch-incidents.jsonl\n
+link-monitor-events.jsonl
+netwatch-incidents.jsonl
