@@ -105,9 +105,9 @@ async function avisarTelegram(level, dev, message) {
       body: JSON.stringify({ chat_id: CFG.telegramChat, text: texto, parse_mode: 'Markdown' }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!r.ok) erro(`telegram respondeu ${r.status}:`, (await r.text()).slice(0, 200));
+    if (!r.ok) console.error(`telegram respondeu ${r.status}:`, (await r.text()).slice(0, 200));
   } catch (e) {
-    erro('não consegui avisar no telegram:', e.message);
+    console.error('não consegui avisar no telegram:', e.message);
   }
 }
 
