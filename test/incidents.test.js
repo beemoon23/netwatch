@@ -37,7 +37,8 @@ test('não duplica incidente aberto e atualiza causa provável', () => {
       causa: 'Switch upstream indisponível', causaTipo: 'dependencia', confianca: 'alta' });
     assert.equal(first.id, second.id);
     assert.equal(store.list().length, 1);
-    assert.equal(store.list()[0].causaTipo, 'dependencia');\n    assert.equal(store.list()[0].tipo, 'queda');
+    assert.equal(store.list()[0].causaTipo, 'dependencia');
+    assert.equal(store.list()[0].tipo, 'queda');
     assert.equal(new IncidentStore(file).list()[0].causa, 'Switch upstream indisponível');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
