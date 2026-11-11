@@ -93,7 +93,9 @@ const ICONE = { offline: '🔴', online: '🟢', reboot: '🔁', instavel: '🟠
 
 async function avisarTelegram(level, dev, message) {
   if (!CFG.telegramToken || !CFG.telegramChat) return;
-  if (!CFG.telegramNiveis.includes(level)) return;
+  const nivelHabilitado = CFG.telegramNiveis.includes(level)
+    || (level === 'instavel' && CFG.telegramNiveis.includes('offline'));
+  if (!nivelHabilitado) return;
 
   const texto =
     `${ICONE[level] || '•'} *${escaparMd(dev.name)}*\n` +
@@ -334,7 +336,11 @@ async function rodada() {
           registrar('servico', d, `${d.servico || 'serviço'} não respondeu na porta ${d.porta} — a máquina está no ar`);
         }
       } else if (viva) {
-        if (d.portaOk === false) registrar('servico', d, `${d.servico || 'serviço'} voltou na porta ${d.porta}`);
+        if (d.portaOk === false) {
+          const mensagem = `${d.servico || 'serviço'} voltou na porta ${d.porta}`;
+          registrar('online', d, mensagem);
+          if (!silenciado(d.sector || '—')) avisarTelegram('servico', d, mensagem);
+        }
         d.portaOk = true;
         d.portaFalhas = 0;
       } else if (d.portaOk === undefined) {
@@ -996,12 +1002,12 @@ function corDisp(p){
 }
 
 // a aba do navegador vira indicador: dá pra saber o estado sem abrir
-function marcarAba(off, ins, servicos){
+function marcarAba(off, ins, servicos, anchorOk){
   const p = document.getElementById('pulso');
-  const critico = off || servicos;
+  const critico = !anchorOk || off || servicos;
   p.className = 'pulso' + (critico ? ' mal' : ins ? ' aten' : '');
   const c = critico ? '#ef4a3c' : ins ? '#f7941d' : '#8cc63f';
-  document.title = (off ? '● ' + off + ' fora do ar' : servicos ? '● ' + servicos + ' serviços fora' : ins ? '● ' + ins + ' instável' : '● tudo no ar')
+  document.title = (!anchorOk ? '● monitor sem rede' : off ? '● ' + off + ' fora do ar' : servicos ? '● ' + servicos + ' serviços fora' : ins ? '● ' + ins + ' instável' : '● tudo no ar')
     + ' · Vale Encantado';
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
     + '<circle cx="16" cy="16" r="13" fill="' + c + '"/></svg>';
@@ -1062,7 +1068,7 @@ function pintar(forcar){
   relogioTopo(s);
 
   const e=document.getElementById('estado');
-  e.className='estado '+((off.length || servicos.length)?'mal':(ins.length || dep.length)?'aten':'bem');
+  e.className='estado '+((!s.anchorOk || off.length || servicos.length)?'mal':(ins.length || dep.length)?'aten':'bem');
   e.textContent = !s.anchorOk ? 'MONITOR SEM REDE'
     : off.length ? off.length+(off.length>1?' APARELHOS FORA DO AR':' APARELHO FORA DO AR')
     : servicos.length ? servicos.length+(servicos.length>1?' SERVIÇOS INDISPONÍVEIS':' SERVIÇO INDISPONÍVEL')
@@ -1198,7 +1204,7 @@ function pintar(forcar){
       (v.ms!=null?' · '+v.ms+' ms em média':'')+'</span></div>';
   }).join('') : '<p class="vazio">Todos com 100% de resposta nas últimas 24 h.</p>';
 
-  marcarAba(off.length, ins.length, servicos.length);
+  marcarAba(off.length, ins.length, servicos.length, s.anchorOk);
   pintarLongo(lista, nomes);
 
   document.getElementById('lat').innerHTML = todos.filter(d=>d.ms!=null)
