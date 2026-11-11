@@ -161,6 +161,34 @@ function detectarGateway() {
 
 const state = new Map();
 const incidentStore = new IncidentStore(INCIDENT_FILE);
+
+// Migra uma única vez o histórico antigo para o diário independente de incidentes.
+// O arquivo de eventos é append-only; assim não dependemos do recorte dos últimos 300.
+function migrarIncidentesLegados() {
+  if (fs.existsSync(INCIDENT_FILE)) return;
+  let conteudo;
+  try { conteudo = fs.readFileSync(EVT_FILE, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT') return; throw error; }
+
+  for (const linha of conteudo.split('\n')) {
+    if (!linha.trim()) continue;
+    let ev;
+    try { ev = JSON.parse(linha); } catch { continue; }
+    if (!ev || !ev.ip || !Number.isFinite(ev.at)) continue;
+
+    if (ev.level === 'offline') {
+      incidentStore.open({ device: ev.device, ip: ev.ip, sector: ev.sector,
+        tipo: 'queda', inicio: ev.at,
+        causa: 'Ocorrência importada do histórico anterior; causa não registrada',
+        causaTipo: 'legado', confianca: 'baixa' });
+    } else if (ev.level === 'online' || ev.level === 'reboot') {
+      incidentStore.resolve(ev.ip, ev.at, 'Recuperação importada do histórico anterior');
+    }
+  }
+  incidentStore.append({ event: 'migration', incidentId: 'legacy-events-v1', at: Date.now() });
+}
+migrarIncidentesLegados();
+
 let events = [];
 let lastRun = null;
 let anchorIp = null;
