@@ -32,15 +32,17 @@ O painel fica em `http://IP_DO_SERVIDOR:48715`.
 
 | arquivo | o que é |
 |---|---|
-| `netwatch.js` | monitor, servidor web e interface |\n| `incidents.js` | diário persistente e ciclo de vida dos incidentes |
+| `netwatch.js` | monitor, servidor web e interface |
+| `incidents.js` | diário persistente e ciclo de vida dos incidentes |
 | `devices.json` | os aparelhos monitorados e as configurações |
 | `netwatch.service` | unidade do systemd |
 | `netwatch-events.jsonl` | histórico de eventos, gerado em execução |
 | `netwatch-horas.jsonl` | consolidado por hora, gerado em execução |
 | `netwatch-incidents.jsonl` | diário persistente de incidentes, abertura, atualização e recuperação |
 
-Os dois `.jsonl` moram só no servidor e estão no `.gitignore`. São eles que
-sustentam o mapa de 7 dias e o relatório — apagar significa perder o histórico.
+Os arquivos `.jsonl` moram só no servidor e estão no `.gitignore`. Eles sustentam
+o mapa de 7 dias, os relatórios e a Central de Incidentes — apagar significa perder
+o histórico correspondente.
 
 ## Incidentes e testes
 
