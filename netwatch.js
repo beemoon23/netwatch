@@ -1086,7 +1086,7 @@ function pintar(forcar){
       : servicos.length
         ? '<b>'+servicos.map(d=>esc(d.servico||d.name)).join('</b>, <b>')+'</b> não responde na porta configurada, embora o equipamento esteja acessível.'
       : desconhecidos.length
-        ? '<b>'+desconhecidos.length+'</b> equipamentos aguardando a primeira medição. O painel ainda não considera a rede saudável.
+        ? '<b>'+desconhecidos.length+'</b> equipamentos aguardando a primeira medição. O painel ainda não considera a rede saudável.'
       : (ins.length
           ? '<b>'+todos.length+'</b> aparelhos respondendo, mas <b style="color:var(--laranja)">'+
             ins.map(d=>esc(d.name)).join('</b>, <b style="color:var(--laranja)">')+
