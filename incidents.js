@@ -8,6 +8,7 @@ class IncidentStore {
     this.file = path.resolve(file);
     this.now = options.now || Date.now;
     this.incidents = new Map();
+    this.legacyMigrated = false;
     this.load();
   }
 
@@ -20,7 +21,9 @@ class IncidentStore {
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
       if (!entry || !entry.event || !entry.incidentId) continue;
-      if (entry.event === 'opened' && entry.incident) {
+      if (entry.event === 'migration' && entry.incidentId === 'legacy-events-v1') {
+        this.legacyMigrated = true;
+      } else if (entry.event === 'opened' && entry.incident) {
         this.incidents.set(entry.incidentId, entry.incident);
       } else if (entry.event === 'updated') {
         const current = this.incidents.get(entry.incidentId);
@@ -42,7 +45,7 @@ class IncidentStore {
   }
 
   migrateLegacy(eventsFile) {
-    if (fs.existsSync(this.file)) return false;
+    if (this.legacyMigrated) return false;
     let content;
     try { content = fs.readFileSync(eventsFile, 'utf8'); }
     catch (error) { if (error.code === 'ENOENT') return false; throw error; }
@@ -62,6 +65,7 @@ class IncidentStore {
       }
     }
     this.append({ event: 'migration', incidentId: 'legacy-events-v1', at: this.now() });
+    this.legacyMigrated = true;
     return true;
   }
 
