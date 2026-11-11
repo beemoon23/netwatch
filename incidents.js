@@ -41,6 +41,30 @@ class IncidentStore {
     fs.appendFileSync(this.file, JSON.stringify(entry) + '\n', { mode: 0o600 });
   }
 
+  migrateLegacy(eventsFile) {
+    if (fs.existsSync(this.file)) return false;
+    let content;
+    try { content = fs.readFileSync(eventsFile, 'utf8'); }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      let event;
+      try { event = JSON.parse(line); } catch { continue; }
+      if (!event || !event.ip || !Number.isFinite(event.at)) continue;
+      if (event.level === 'offline') {
+        this.open({ device: event.device, ip: event.ip, sector: event.sector,
+          tipo: 'queda', inicio: event.at,
+          causa: 'Ocorrência importada do histórico anterior; causa não registrada',
+          causaTipo: 'legado', confianca: 'baixa' });
+      } else if (event.level === 'online' || event.level === 'reboot') {
+        this.resolve(event.ip, event.at, 'Recuperação importada do histórico anterior');
+      }
+    }
+    this.append({ event: 'migration', incidentId: 'legacy-events-v1', at: this.now() });
+    return true;
+  }
+
   open(data) {
     const existing = [...this.incidents.values()].find(
       (item) => item.ip === data.ip && item.status === 'open'
