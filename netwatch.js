@@ -12,6 +12,9 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { IncidentStore } = require('./incidents');
+const { AlertManager } = require('./alert-manager');
+const { resumirSaude } = require('./health');
+const { persistirHorasFechadas, persistirTodasHoras } = require('./hourly-store');
 
 const CFG_FILE = path.resolve(process.env.NETWATCH_CFG || './devices.json');
 const EVT_FILE = path.resolve(process.env.NETWATCH_EVENTS || './netwatch-events.jsonl');
@@ -161,6 +164,12 @@ function detectarGateway() {
 
 const state = new Map();
 const incidentStore = new IncidentStore(INCIDENT_FILE);
+const alertManager = new AlertManager({
+  downDelayMin: CFG.avisarQuedaMin,
+  flapThreshold: CFG.oscilaQuedas,
+  flapWindowMin: 60,
+  flapCooldownMin: CFG.oscilaSilencioMin,
+});
 
 // Migra o histórico antigo uma única vez, antes de iniciar novas rodadas.
 incidentStore.migrateLegacy(EVT_FILE);
@@ -192,13 +201,19 @@ function contarQueda(d) {
 
 // Fecha as horas que já passaram e grava no disco.
 function fecharHoras() {
-  const atual = chaveHora(Date.now());
-  const prontas = [...horas.entries()].filter(([, a]) => a.h !== atual);
-  if (!prontas.length) return;
-  const linhas = prontas.map(([, a]) => JSON.stringify(a)).join('\n') + '\n';
-  fs.appendFile(HORA_FILE, linhas, () => {});
-  prontas.forEach(([k, a]) => { arquivo.push(a); horas.delete(k); });
+  try {
+    const atual = chaveHora(Date.now());
+    persistirHorasFechadas(horas, arquivo, HORA_FILE, atual);
+    const corte = chaveHora(Date.now() - 7 * 24 * 3600e3);
+    arquivo = arquivo.filter((item) => item.h >= corte);
+  } catch (e) {
+    console.error('não consegui gravar o histórico por hora:', e.message);
+  }
 }
+
+// Persiste horas encerradas mesmo que o processo continue rodando por semanas.
+const timerHoras = setInterval(fecharHoras, 60 * 1000);
+timerHoras.unref();
 
 // Disponibilidade de uma janela de horas: disco + hora corrente.
 function disponibilidade(janela = 24) {
@@ -319,7 +334,7 @@ async function rodada() {
           registrar('servico', d, `${d.servico || 'serviço'} não respondeu na porta ${d.porta} — a máquina está no ar`);
         }
       } else if (viva) {
-        if (d.portaOk === false) registrar('online', d, `${d.servico || 'serviço'} voltou na porta ${d.porta}`);
+        if (d.portaOk === false) registrar('servico', d, `${d.servico || 'serviço'} voltou na porta ${d.porta}`);
         d.portaOk = true;
         d.portaFalhas = 0;
       } else if (d.portaOk === undefined) {
@@ -357,8 +372,12 @@ async function rodada() {
       if (d.status === 'offline' || d.status === 'dependente') {
         const fora = d.downSince ? agora - d.downSince : 0;
         const reinicio = d.status === 'offline' && fora <= CFG.rebootWindowMin * 60000;
-        registrar(reinicio ? 'reboot' : 'online', d,
-          `voltou depois de ${minutos(fora)} min fora${reinicio ? ' — provável reinício' : ''}`);
+        const mensagemRetorno = `voltou depois de ${minutos(fora)} min fora${reinicio ? ' — provável reinício' : ''}`;
+        const quedaNotificada = alertManager.registrarRecuperacao(d.ip);
+        registrar(reinicio ? 'reboot' : 'online', d, mensagemRetorno);
+        if (quedaNotificada && !silenciado(d.sector || '—')) {
+          avisarTelegram(reinicio ? 'reboot' : 'online', d, mensagemRetorno);
+        }
         incidentStore.resolve(d.ip, agora, d.status === 'dependente'
           ? 'Equipamento voltou a responder após recuperação do uplink'
           : 'Equipamento voltou a responder');
@@ -395,9 +414,25 @@ async function rodada() {
     if (!eraDependente) contarQueda(d);
     (d.quedas = d.quedas || []).push(agora);
     const filhos = [...state.values()].filter((f) => f.parent === d.ip && !f.okAgora).length;
-    if (!eraDependente) registrar('offline', d, filhos
-      ? `${d.fails} rodadas sem resposta — ${filhos} aparelhos abaixo dele também pararam`
-      : `${d.fails} rodadas sem resposta (${d.fails * 3} pacotes)`);
+    if (!eraDependente) {
+      const mensagemQueda = filhos
+        ? `${d.fails} rodadas sem resposta — ${filhos} aparelhos abaixo dele também pararam`
+        : `${d.fails} rodadas sem resposta (${d.fails * 3} pacotes)`;
+      registrar('offline', d, mensagemQueda);
+      const alerta = alertManager.registrarQueda(d.ip, d, mensagemQueda, agora);
+      if (alerta.oscilando) {
+        registrar('instavel', d,
+          `equipamento oscilando: ${alerta.quedasNaJanela} quedas na última hora`);
+      }
+    }
+  }
+
+  // Só avisa a queda depois do atraso configurado. Se recuperar antes, o alerta é cancelado.
+  for (const alerta of alertManager.vencidas(agora)) {
+    if (silenciado(alerta.device.sector || '—')) continue;
+    alertManager.marcarNotificada(alerta.ip);
+    avisarTelegram('offline', alerta.device,
+      `${alerta.message} — queda confirmada há ${minutos(agora - alerta.since)} min`);
   }
 
   lastRun = Date.now();
@@ -961,11 +996,12 @@ function corDisp(p){
 }
 
 // a aba do navegador vira indicador: dá pra saber o estado sem abrir
-function marcarAba(off, ins){
+function marcarAba(off, ins, servicos){
   const p = document.getElementById('pulso');
-  p.className = 'pulso' + (off ? ' mal' : ins ? ' aten' : '');
-  const c = off ? '#ef4a3c' : ins ? '#f7941d' : '#8cc63f';
-  document.title = (off ? '● ' + off + ' fora do ar' : ins ? '● ' + ins + ' instável' : '● tudo no ar')
+  const critico = off || servicos;
+  p.className = 'pulso' + (critico ? ' mal' : ins ? ' aten' : '');
+  const c = critico ? '#ef4a3c' : ins ? '#f7941d' : '#8cc63f';
+  document.title = (off ? '● ' + off + ' fora do ar' : servicos ? '● ' + servicos + ' serviços fora' : ins ? '● ' + ins + ' instável' : '● tudo no ar')
     + ' · Vale Encantado';
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
     + '<circle cx="16" cy="16" r="13" fill="' + c + '"/></svg>';
@@ -1020,20 +1056,26 @@ function pintar(forcar){
   const off=todos.filter(d=>d.status==='offline');
   const dep=todos.filter(d=>d.status==='dependente');
   const ins=todos.filter(d=>d.status==='instavel');
+  const servicos=todos.filter(d=>d.porta && d.portaOk===false && !['offline','dependente'].includes(d.status));
   const nomes=Object.fromEntries(todos.map(d=>[d.ip,d.name]));
 
   relogioTopo(s);
 
   const e=document.getElementById('estado');
-  e.className='estado '+(off.length?'mal':'bem');
+  e.className='estado '+((off.length || servicos.length)?'mal':(ins.length || dep.length)?'aten':'bem');
   e.textContent = !s.anchorOk ? 'MONITOR SEM REDE'
     : off.length ? off.length+(off.length>1?' APARELHOS FORA DO AR':' APARELHO FORA DO AR')
+    : servicos.length ? servicos.length+(servicos.length>1?' SERVIÇOS INDISPONÍVEIS':' SERVIÇO INDISPONÍVEL')
+    : (ins.length || dep.length) ? 'REDE COM INSTABILIDADE'
     : 'VALE NO AR';
   document.getElementById('legenda').innerHTML = !s.anchorOk
     ? 'O gateway <b>'+s.anchorIp+'</b> parou de responder. Os alertas estão suspensos até a conexão do monitor voltar — nenhum aparelho foi julgado nesta rodada.'
     : off.length
       ? '<b>'+off.map(d=>esc(d.name)).join('</b>, <b>')+'</b>'+
-        (dep.length?' · mais <b>'+dep.length+'</b> aparelhos parados por dependerem de um switch caído.':'.')
+        (dep.length?' · mais <b>'+dep.length+'</b> aparelhos parados por dependerem de um switch caído.':'.')+
+        (servicos.length?' <b>'+servicos.length+'</b> serviços TCP também estão indisponíveis.':'')
+      : servicos.length
+        ? '<b>'+servicos.map(d=>esc(d.servico||d.name)).join('</b>, <b>')+'</b> não responde na porta configurada, embora o equipamento esteja acessível.'
       : (ins.length
           ? '<b>'+todos.length+'</b> aparelhos respondendo, mas <b style="color:var(--laranja)">'+
             ins.map(d=>esc(d.name)).join('</b>, <b style="color:var(--laranja)">')+
@@ -1047,15 +1089,15 @@ function pintar(forcar){
             })());
 
   document.getElementById('petalas').innerHTML = setores.map((x,i)=>{
-    const g=todos.filter(d=>sec(d)===x), ok=g.filter(d=>d.status==='online').length;
-    const ruim=g.filter(d=>d.status!=='online').length;
+    const g=todos.filter(d=>sec(d)===x), ok=g.filter(d=>d.status==='online' && d.portaOk!==false).length;
+    const ruim=g.filter(d=>d.status!=='online' || d.portaOk===false).length;
     return '<button class="pet" data-s="'+esc(x)+'" data-on="'+(x===setor)+'">'+
       anel(ok/g.length, ruim?'var(--brasa)':CORES[i%CORES.length], ok+'/'+g.length)+
       '<div class="rt">'+esc(x)+'</div></button>';
   }).join('');
 
   document.getElementById('abas').innerHTML = ['Todos',...setores].map(x=>{
-    const n = x==='Todos' ? off.length : todos.filter(d=>sec(d)===x && d.status==='offline').length;
+    const n = x==='Todos' ? off.length + servicos.length : todos.filter(d=>sec(d)===x && (d.status==='offline' || d.portaOk===false)).length;
     return '<button aria-pressed="'+(x===setor)+'" data-s="'+esc(x)+'">'+esc(x)+
       (n?' <span class="ct">'+n+'</span>':'')+'</button>';
   }).join('');
@@ -1156,7 +1198,7 @@ function pintar(forcar){
       (v.ms!=null?' · '+v.ms+' ms em média':'')+'</span></div>';
   }).join('') : '<p class="vazio">Todos com 100% de resposta nas últimas 24 h.</p>';
 
-  marcarAba(off.length, ins.length);
+  marcarAba(off.length, ins.length, servicos.length);
   pintarLongo(lista, nomes);
 
   document.getElementById('lat').innerHTML = todos.filter(d=>d.ms!=null)
@@ -1324,6 +1366,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({
       lastRun, anchorIp, anchorOk,
+      health: resumirSaude([...state.values()], anchorOk),
       silencio: Object.fromEntries(silencio),
       disp: disponibilidade(24),
       incidentes: incidentes().slice(0, 100),
@@ -1337,10 +1380,9 @@ const server = http.createServer((req, res) => {
 });
 
 const encerrar = () => {
-  const todas = [...horas.values()];
-  if (todas.length) {
-    try { fs.appendFileSync(HORA_FILE, todas.map((a) => JSON.stringify(a)).join('\n') + '\n'); } catch {}
-  }
+  clearInterval(timerHoras);
+  try { persistirTodasHoras(horas, HORA_FILE); }
+  catch (e) { console.error('não consegui gravar a última hora:', e.message); }
   console.log('\nmonitor encerrado — histórico gravado.');
   process.exit(0);
 };
