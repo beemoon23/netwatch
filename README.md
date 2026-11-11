@@ -53,9 +53,10 @@ uplink recebe confiança baixa; quando o equipamento `parent` está indisponíve
 a relação de dependência recebe confiança alta. A duração continua sendo atualizada
 enquanto o incidente estiver aberto.
 
-Incidentes anteriores à instalação desta versão não são reconstruídos automaticamente
-a partir do histórico antigo. O diário começa a registrar novas ocorrências após a
-implantação.
+Na primeira inicialização, se o diário ainda não existir, o Netwatch importa as
+quedas e recuperações registradas no histórico antigo completo. A causa desses itens
+legados fica marcada como não determinada e com confiança baixa. Dependências antigas
+não são reconstruídas porque a versão anterior não registrava esse estado como evento.
 
 Para executar os testes nativos do Node.js (sem instalar dependências):
 
