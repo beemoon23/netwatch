@@ -58,9 +58,10 @@ test('saúde geral considera serviço TCP, dependências e instabilidade', () =>
   ];
   assert.deepEqual(resumirSaude(devices, true), {
     nivel: 'critical', total: 5, online: 2, offline: 1,
-    dependentes: 1, instaveis: 1, servicos: 1,
+    dependentes: 1, instaveis: 1, desconhecidos: 0, servicos: 1,
   });
   assert.equal(resumirSaude([{ status: 'online' }], false).nivel, 'unknown');
+  assert.equal(resumirSaude([{ status: 'desconhecido' }]).nivel, 'unknown');
   assert.equal(resumirSaude([{ status: 'online', porta: 80, portaOk: false }]).nivel, 'critical');
 });
 
