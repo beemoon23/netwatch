@@ -10,8 +10,9 @@ function resumirSaude(devices, anchorOk = true) {
     d.porta && d.portaOk === false && !['offline', 'dependente'].includes(d.status));
 
   let nivel = 'ok';
-  if (!anchorOk || !devices.length || desconhecidos.length) nivel = 'unknown';
+  if (!anchorOk || !devices.length) nivel = 'unknown';
   else if (offline.length || servicos.length) nivel = 'critical';
+  else if (desconhecidos.length) nivel = 'unknown';
   else if (dependentes.length || instaveis.length) nivel = 'warning';
 
   return {
