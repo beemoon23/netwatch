@@ -11,10 +11,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const { IncidentStore } = require('./incidents');
 
 const CFG_FILE = path.resolve(process.env.NETWATCH_CFG || './devices.json');
 const EVT_FILE = path.resolve(process.env.NETWATCH_EVENTS || './netwatch-events.jsonl');
 const HORA_FILE = path.resolve(process.env.NETWATCH_HORAS || './netwatch-horas.jsonl');
+const INCIDENT_FILE = path.resolve(process.env.NETWATCH_INCIDENTS || './netwatch-incidents.jsonl');
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 = só esta máquina. 0.0.0.0 = qualquer um da rede interna alcança.
 const BIND = process.env.NETWATCH_BIND || '127.0.0.1';
@@ -158,6 +160,7 @@ function detectarGateway() {
 // ---------------------------------------------------------------- estado
 
 const state = new Map();
+const incidentStore = new IncidentStore(INCIDENT_FILE);
 let events = [];
 let lastRun = null;
 let anchorIp = null;
@@ -215,27 +218,9 @@ function disponibilidade(janela = 24) {
   return saida;
 }
 
-// Um incidente é uma queda com seu retorno. É o que vira linha de relatório.
+// A central usa um diário próprio, independente do recorte de eventos recentes.
 function incidentes() {
-  const abertos = {}, lista = [];
-  for (const ev of [...events].reverse()) {          // dos mais antigos para os novos
-    if (ev.level === 'offline') {
-      abertos[ev.ip] = { device: ev.device, ip: ev.ip, sector: ev.sector, inicio: ev.at };
-    } else if ((ev.level === 'online' || ev.level === 'reboot') && abertos[ev.ip]) {
-      const a = abertos[ev.ip];
-      lista.push({ ...a, fim: ev.at, minutos: Math.max(1, Math.round((ev.at - a.inicio) / 60000)),
-                   tipo: ev.level === 'reboot' ? 'reinício' : 'queda' });
-      delete abertos[ev.ip];
-    }
-  }
-  for (const d of state.values()) {
-    if ((d.status === 'offline' || d.status === 'dependente') && d.downSince) {
-      lista.push({ device: d.name, ip: d.ip, sector: d.sector || '—', inicio: d.downSince,
-                   fim: null, minutos: Math.max(1, Math.round((Date.now() - d.downSince) / 60000)),
-                   tipo: d.status === 'dependente' ? 'dependência' : 'queda' });
-    }
-  }
-  return lista.sort((a, b) => (b.fim === null) - (a.fim === null) || b.inicio - a.inicio);
+  return incidentStore.list(200);
 }
 
 const perdaJanela = (d) => {
@@ -365,11 +350,14 @@ async function rodada() {
         }
         continue;
       }
-      if (d.status === 'offline') {
+      if (d.status === 'offline' || d.status === 'dependente') {
         const fora = d.downSince ? agora - d.downSince : 0;
-        const reinicio = fora <= CFG.rebootWindowMin * 60000;
+        const reinicio = d.status === 'offline' && fora <= CFG.rebootWindowMin * 60000;
         registrar(reinicio ? 'reboot' : 'online', d,
           `voltou depois de ${minutos(fora)} min fora${reinicio ? ' — provável reinício' : ''}`);
+        incidentStore.resolve(d.ip, agora, d.status === 'dependente'
+          ? 'Equipamento voltou a responder após recuperação do uplink'
+          : 'Equipamento voltou a responder');
       }
       d.status = 'online';
       d.since = agora;
@@ -377,24 +365,33 @@ async function rodada() {
       continue;
     }
 
-    if (!caiu(d) || d.status === 'offline' || d.status === 'dependente') continue;
+    if (!caiu(d) || d.status === 'offline') continue;
 
     // O switch pai também está fora? Então a causa é ele, não este aparelho.
     const pai = d.parent ? state.get(d.parent) : null;
     if (pai && (pai.status === 'offline' || pai.status === 'dependente')) {
+      const inicio = d.downSince || agora;
       d.status = 'dependente';
-      d.downSince = agora;
-      d.since = agora;
+      d.downSince = inicio;
+      d.since = d.since || agora;
+      incidentStore.open({ device: d.name, ip: d.ip, sector: d.sector,
+        tipo: 'dependência', inicio, causa: `Uplink ${pai.name} (${pai.ip}) está indisponível`,
+        causaTipo: 'dependencia', confianca: 'alta' });
       continue;
     }
 
+    const eraDependente = d.status === 'dependente';
     d.status = 'offline';
-    d.downSince = agora;
-    d.since = agora;
-    contarQueda(d);
+    d.downSince = d.downSince || agora;
+    d.since = d.since || agora;
+    incidentStore.open({ device: d.name, ip: d.ip, sector: d.sector,
+      tipo: 'queda', inicio: d.downSince,
+      causa: 'Sem resposta após ' + d.fails + ' rodadas; causa física ou lógica não confirmada',
+      causaTipo: 'desconhecida', confianca: 'baixa' });
+    if (!eraDependente) contarQueda(d);
     (d.quedas = d.quedas || []).push(agora);
     const filhos = [...state.values()].filter((f) => f.parent === d.ip && !f.okAgora).length;
-    registrar('offline', d, filhos
+    if (!eraDependente) registrar('offline', d, filhos
       ? `${d.fails} rodadas sem resposta — ${filhos} aparelhos abaixo dele também pararam`
       : `${d.fails} rodadas sem resposta (${d.fails * 3} pacotes)`);
   }
@@ -1138,11 +1135,10 @@ function pintar(forcar){
     ? s.incidentes.slice(0,8).map(i=>
         '<div class="inc'+(i.fim?(i.tipo==='reinício'?' reinicio':''):' aberto')+'">'+
         '<span>'+esc(i.device)+'</span><b>'+dur(i.minutos)+'</b>'+
-        '<span class="q">'+(i.fim
-          ? i.tipo+' · '+new Date(i.inicio).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',
-              hour:'2-digit',minute:'2-digit'})
-          : 'em curso desde '+relogio(i.inicio)+(i.tipo==='dependência'?' · por queda do switch':''))+
-        '</span></div>').join('')
+        '<span class="q">'+(i.status==='resolved'
+          ? i.tipo+' · '+new Date(i.inicio).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+          : 'em curso desde '+relogio(i.inicio))+
+        '</span><span class="q">'+esc(i.causa)+' · confiança '+esc(i.confianca)+'</span></div>').join('')
     : '<p class="vazio">Nenhuma queda registrada desde que o histórico começou.</p>';
 
   const dp = Object.entries(s.disp).map(([ip,v])=>({...v, nome:nomes[ip]||ip}))
@@ -1325,7 +1321,7 @@ const server = http.createServer((req, res) => {
       lastRun, anchorIp, anchorOk,
       silencio: Object.fromEntries(silencio),
       disp: disponibilidade(24),
-      incidentes: incidentes().slice(0, 40),
+      incidentes: incidentes().slice(0, 100),
       devices: [...state.values()].sort((a, b) =>
         (a.status === 'online') - (b.status === 'online') || a.name.localeCompare(b.name, 'pt-BR')),
       events,
