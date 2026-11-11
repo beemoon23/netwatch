@@ -3,3 +3,7 @@ netwatch-horas.jsonl
 node_modules/
 *.log
 logo.png
+
+# Estado e eventos locais do monitor de link
+link-monitor-state.json
+link-monitor-events.jsonl
