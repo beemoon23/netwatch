@@ -499,7 +499,7 @@ const PAGE = `<!doctype html><html lang="pt-BR"><meta charset="utf-8">
   .heroi::after{content:"";position:absolute;right:-90px;top:-90px;width:280px;height:280px;
     border-radius:50%;background:radial-gradient(circle,rgba(22,176,189,.20),transparent 68%)}
   .estado{font:600 clamp(34px,5.4vw,62px)/1 var(--titulo);letter-spacing:-.02em;margin:0}
-  .estado.bem{color:var(--folha)} .estado.mal{color:var(--brasa)}
+  .estado.bem{color:var(--folha)} .estado.mal{color:var(--brasa)} .estado.aten{color:var(--laranja)}
   .legenda{color:var(--suave);font-size:13px;margin-top:12px;max-width:62ch;line-height:1.6}
   .legenda b{color:var(--texto);font-weight:600}
   .petalas{display:flex;gap:12px;position:relative;z-index:1}
@@ -1062,17 +1062,19 @@ function pintar(forcar){
   const off=todos.filter(d=>d.status==='offline');
   const dep=todos.filter(d=>d.status==='dependente');
   const ins=todos.filter(d=>d.status==='instavel');
+  const desconhecidos=todos.filter(d=>d.status==='desconhecido');
   const servicos=todos.filter(d=>d.porta && d.portaOk===false && !['offline','dependente'].includes(d.status));
   const nomes=Object.fromEntries(todos.map(d=>[d.ip,d.name]));
 
   relogioTopo(s);
 
   const e=document.getElementById('estado');
-  e.className='estado '+((!s.anchorOk || off.length || servicos.length)?'mal':(ins.length || dep.length)?'aten':'bem');
+  e.className='estado '+((!s.anchorOk || off.length || servicos.length)?'mal':(ins.length || dep.length || desconhecidos.length)?'aten':'bem');
   e.textContent = !s.anchorOk ? 'MONITOR SEM REDE'
     : off.length ? off.length+(off.length>1?' APARELHOS FORA DO AR':' APARELHO FORA DO AR')
     : servicos.length ? servicos.length+(servicos.length>1?' SERVIÇOS INDISPONÍVEIS':' SERVIÇO INDISPONÍVEL')
     : (ins.length || dep.length) ? 'REDE COM INSTABILIDADE'
+    : desconhecidos.length ? 'AGUARDANDO MEDIÇÕES'
     : 'VALE NO AR';
   document.getElementById('legenda').innerHTML = !s.anchorOk
     ? 'O gateway <b>'+s.anchorIp+'</b> parou de responder. Os alertas estão suspensos até a conexão do monitor voltar — nenhum aparelho foi julgado nesta rodada.'
@@ -1123,11 +1125,11 @@ function pintar(forcar){
 
   const cartoes = hubs.map(h=>{
     const filhos=todos.filter(f=>f.parent===h.ip);
-    const ruins=filhos.filter(f=>f.status!=='online').length;
+    const ruins=filhos.filter(f=>f.status!=='online' || f.portaOk===false).length;
     return '<div class="hub">'+constelacao(h,filhos)+'<div class="hn">'+esc(h.name)+'</div>'+
       '<div class="hq">'+(ruins?ruins+' com problema':'todos no ar')+'</div></div>';
   }).concat(Object.entries(porSetor).map(([nome,itens])=>{
-    const ruins = itens.filter(d=>d.status!=='online').length;
+    const ruins = itens.filter(d=>d.status!=='online' || d.portaOk===false).length;
     return '<div class="hub solto">'+nebulosa(nome,itens)+
       '<div class="hn">'+esc(nome)+' · sem uplink mapeado</div>'+
       '<div class="hq">'+(ruins?ruins+' com problema':'todos no ar')+'</div></div>';
@@ -1204,7 +1206,7 @@ function pintar(forcar){
       (v.ms!=null?' · '+v.ms+' ms em média':'')+'</span></div>';
   }).join('') : '<p class="vazio">Todos com 100% de resposta nas últimas 24 h.</p>';
 
-  marcarAba(off.length, ins.length, servicos.length, s.anchorOk);
+  marcarAba(off.length, ins.length + desconhecidos.length, servicos.length, s.anchorOk);
   pintarLongo(lista, nomes);
 
   document.getElementById('lat').innerHTML = todos.filter(d=>d.ms!=null)
