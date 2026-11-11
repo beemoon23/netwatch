@@ -64,6 +64,25 @@ Para executar os testes nativos do Node.js (sem instalar dependências):
 node --test
 ```
 
+## Alertas e saúde geral
+
+Quedas de equipamentos aguardam `AVISAR_QUEDA_MIN` minutos antes do aviso no Telegram.
+Se o equipamento recuperar antes desse prazo, a notificação de queda é cancelada; o retorno
+só é enviado quando uma queda já notificada se recupera. Isso reduz ruído de oscilações curtas.
+
+O Netwatch também identifica oscilação quando o mesmo equipamento cai pelo menos
+`OSCILA_QUEDAS` vezes em uma janela de 60 minutos. O aviso de oscilação respeita
+`OSCILA_SILENCIO_MIN` minutos de intervalo. Se `TELEGRAM_NIVEIS` incluir `offline`,
+os avisos de oscilação também são enviados.
+
+O indicador principal considera indisponibilidade ICMP, serviços TCP fora do ar,
+links instáveis e perda de conectividade do próprio monitor. Um servidor pode responder
+ao ping e ainda assim deixar o painel em estado crítico se a porta do serviço não responder.
+
+O histórico por hora é persistido automaticamente a cada minuto quando uma hora termina,
+e também no encerramento normal do processo. Se a gravação falhar, os dados permanecem
+em memória para uma nova tentativa.
+
 ## Configuração
 
 Fica no `devices.json` (o que muda pouco) e em variáveis de ambiente no
@@ -125,7 +144,10 @@ NETWATCH_BIND=0.0.0.0            # 127.0.0.1 = só local; 0.0.0.0 = rede interna
 TZ=America/Sao_Paulo
 TELEGRAM_TOKEN=...
 TELEGRAM_CHAT=-5396993498
-TELEGRAM_NIVEIS=offline,online,reboot,servico
+TELEGRAM_NIVEIS=offline,online,reboot,servico,instavel
+AVISAR_QUEDA_MIN=5          # espera antes de alertar queda confirmada
+OSCILA_QUEDAS=3             # quedas na última hora para alertar oscilação
+OSCILA_SILENCIO_MIN=120     # intervalo entre avisos de oscilação
 NETWATCH_USER=vale               # usuário do painel
 NETWATCH_PASS=uma-senha-forte      # obrigatório quando NETWATCH_BIND não é loopback
 NETWATCH_INCIDENTS=./netwatch-incidents.jsonl # opcional: caminho do diário
