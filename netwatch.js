@@ -909,9 +909,10 @@ function pintarDetalhe(){
         '<div class="dias"><span>7 dias atrás</span><span>agora</span></div>' : '')+
     '<h4>Incidentes deste aparelho</h4>'+
     (meus.length
-      ? meus.slice(0,6).map(i=>'<div class="inc'+(i.fim?'':' aberto')+'"><span>'+i.tipo+'</span>'+
+      ? meus.slice(0,6).map(i=>'<div class="inc'+(i.status==='open'?' aberto':'')+'"><span>'+esc(i.tipo)+'</span>'+
           '<b>'+dur(i.minutos)+'</b><span class="q">'+
-          new Date(i.inicio).toLocaleString('pt-BR')+(i.fim?'':' · em curso')+'</span></div>').join('')
+          new Date(i.inicio).toLocaleString('pt-BR')+(i.status==='open'?' · em curso':' · encerrado')+'</span>'+
+          '<span class="q">'+esc(i.causa)+' · confiança '+esc(i.confianca)+'</span></div>').join('')
       : '<p class="vazio">Nenhuma queda registrada.</p>');
 
   document.getElementById('fecha').onclick = fecharDetalhe;
