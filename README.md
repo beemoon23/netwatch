@@ -36,12 +36,32 @@ O painel fica em `http://IP_DO_SERVIDOR:48715`.
 | `devices.json` | os aparelhos monitorados e as configurações |
 | `netwatch.service` | unidade do systemd |
 | `netwatch-events.jsonl` | histórico de eventos, gerado em execução |
-| `netwatch-horas.jsonl` | consolidado por hora, gerado em execução |\n| `netwatch-incidents.jsonl` | diário persistente de incidentes, abertura, atualização e recuperação |
+| `netwatch-horas.jsonl` | consolidado por hora, gerado em execução |
+| `netwatch-incidents.jsonl` | diário persistente de incidentes, abertura, atualização e recuperação |
 
 Os dois `.jsonl` moram só no servidor e estão no `.gitignore`. São eles que
 sustentam o mapa de 7 dias e o relatório — apagar significa perder o histórico.
 
-## Incidentes e testes\n\nA Central de Incidentes grava cada abertura, mudança de causa e recuperação em\n`netwatch-incidents.jsonl`. O arquivo é independente do histórico visual limitado\naos eventos recentes. A causa é apresentada como provável: queda sem evidência de\nuplink recebe confiança baixa; quando o equipamento `parent` está indisponível,\na relação de dependência recebe confiança alta. A duração continua sendo atualizada\nenquanto o incidente estiver aberto.\n\nIncidentes anteriores à instalação desta versão não são reconstruídos automaticamente\na partir do histórico antigo. O diário começa a registrar novas ocorrências após a\nimplantação.\n\nPara executar os testes nativos do Node.js (sem instalar dependências):\n\n```bash\nnode --test\n```\n\n## Configuração
+## Incidentes e testes
+
+A Central de Incidentes grava cada abertura, mudança de causa e recuperação em
+`netwatch-incidents.jsonl`. O arquivo é independente do histórico visual limitado
+aos eventos recentes. A causa é apresentada como provável: queda sem evidência de
+uplink recebe confiança baixa; quando o equipamento `parent` está indisponível,
+a relação de dependência recebe confiança alta. A duração continua sendo atualizada
+enquanto o incidente estiver aberto.
+
+Incidentes anteriores à instalação desta versão não são reconstruídos automaticamente
+a partir do histórico antigo. O diário começa a registrar novas ocorrências após a
+implantação.
+
+Para executar os testes nativos do Node.js (sem instalar dependências):
+
+```bash
+node --test
+```
+
+## Configuração
 
 Fica no `devices.json` (o que muda pouco) e em variáveis de ambiente no
 `netwatch.service` (o que é específico da máquina).
@@ -104,7 +124,8 @@ TELEGRAM_TOKEN=...
 TELEGRAM_CHAT=-5396993498
 TELEGRAM_NIVEIS=offline,online,reboot,servico
 NETWATCH_USER=vale               # usuário do painel
-NETWATCH_PASS=uma-senha-forte      # obrigatório quando NETWATCH_BIND não é loopback\nNETWATCH_INCIDENTS=./netwatch-incidents.jsonl # opcional: caminho do diário
+NETWATCH_PASS=uma-senha-forte      # obrigatório quando NETWATCH_BIND não é loopback
+NETWATCH_INCIDENTS=./netwatch-incidents.jsonl # opcional: caminho do diário
 ```
 
 ---
